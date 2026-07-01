@@ -293,6 +293,26 @@
   .gem.shape-pentagon{border-radius:3px;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);}
   .gem.shape-hexagon{border-radius:3px;clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0% 50%);}
   .gem.shape-star{border-radius:3px;clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);}
+
+  /* ---------- Score popup (pops in, holds, then flies to HUD score) ---------- */
+  .score-popup{
+    position:fixed;
+    left:0;top:0;
+    z-index:999;
+    font-family:Impact,"Arial Black",Haettenschweiler,sans-serif;
+    letter-spacing:1px;
+    font-size:32px;
+    font-weight:900;
+    color:var(--accent-amber);
+    text-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 14px rgba(255,182,39,.75);
+    pointer-events:none;
+    white-space:nowrap;
+  }
+  .score-popup.combo{
+    font-size:24px;
+    color:var(--accent-hot);
+    text-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 16px rgba(255,61,127,.85);
+  }
   .cell.locked .gem{filter:brightness(.5) saturate(.6);}
   .cell.locked::after{
     content:"";position:absolute;inset:8%;
@@ -532,7 +552,8 @@ function lockedCountFor(w,l){
 }
 
 /* =========================================================
-   STATE (in-memory only, resets on reload — no internet needed)
+   STATE (progress/settings are saved to localStorage so the
+   player picks up where they left off in this browser)
    ========================================================= */
 const state = {
   completed: new Array(100).fill(false), // flat w*10+l
@@ -561,10 +582,71 @@ function isWorldUnlocked(w){
 }
 
 /* =========================================================
+   SAVE / LOAD (localStorage — remembers progress in this browser)
+   ========================================================= */
+const SAVE_KEY = "davesMadnessSave_v1";
+function saveState(){
+  try{
+    const data = {
+      completed: state.completed,
+      stars: state.stars,
+      hallOfFame: state.hallOfFame,
+      musicOn: state.musicOn,
+      musicVolume: state.musicVolume,
+      curWorld: state.curWorld,
+      curLevel: state.curLevel,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  }catch(e){ /* storage unavailable (private browsing, etc.) — fail silently */ }
+}
+function loadState(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.completed) && data.completed.length===100) state.completed = data.completed;
+    if (Array.isArray(data.stars) && data.stars.length===100) state.stars = data.stars;
+    if (Array.isArray(data.hallOfFame)) state.hallOfFame = data.hallOfFame;
+    if (typeof data.musicOn === "boolean") state.musicOn = data.musicOn;
+    if (typeof data.musicVolume === "number") state.musicVolume = data.musicVolume;
+    if (typeof data.curWorld === "number") state.curWorld = data.curWorld;
+    if (typeof data.curLevel === "number") state.curLevel = data.curLevel;
+  }catch(e){ /* corrupted save — ignore and start fresh */ }
+}
+
+/* In-progress level: the actual board, score and moves for the level the
+   player is mid-way through, so reloading drops them back in exactly
+   where they left off instead of restarting the level. */
+const INPROGRESS_KEY = "davesMadnessInProgress_v1";
+function saveInProgressLevel(){
+  if (!G) return;
+  try{
+    const data = {
+      w:G.w, l:G.l, grid:G.grid, size:G.size, colors:G.colors, shapes:G.shapes,
+      score:G.score, moves:G.moves, target:G.target, warnedLastMove:G.warnedLastMove,
+    };
+    localStorage.setItem(INPROGRESS_KEY, JSON.stringify(data));
+  }catch(e){ /* storage unavailable — fail silently */ }
+}
+function loadInProgressLevel(){
+  try{
+    const raw = localStorage.getItem(INPROGRESS_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (typeof data.w!=="number" || typeof data.l!=="number" || !Array.isArray(data.grid)) return null;
+    return data;
+  }catch(e){ return null; }
+}
+function clearInProgressLevel(){
+  try{ localStorage.removeItem(INPROGRESS_KEY); }catch(e){ /* ignore */ }
+}
+
+/* =========================================================
    AUDIO ENGINE (procedural, no external files)
    ========================================================= */
 let actx = null;
 let musicGain = null;
+let sfxGain = null;
 let musicTimer = null;
 const SCALE = [392.00,440.00,523.25,587.33,659.25,783.99,880.00]; // light pentatonic-ish, G major flavor
 
@@ -574,11 +656,14 @@ function ensureAudio(){
     musicGain = actx.createGain();
     musicGain.gain.value = state.musicOn ? state.musicVolume*0.18 : 0;
     musicGain.connect(actx.destination);
+    sfxGain = actx.createGain();
+    sfxGain.gain.value = state.musicOn ? 0.9 : 0;
+    sfxGain.connect(actx.destination);
   }
   if (actx.state === "suspended") actx.resume();
 }
 
-function playTone(freq, time, dur, gainVal, type){
+function playTone(freq, time, dur, gainVal, type, destNode){
   const osc = actx.createOscillator();
   const g = actx.createGain();
   osc.type = type || "sine";
@@ -586,7 +671,7 @@ function playTone(freq, time, dur, gainVal, type){
   g.gain.setValueAtTime(0, time);
   g.gain.linearRampToValueAtTime(gainVal, time+0.015);
   g.gain.exponentialRampToValueAtTime(0.001, time+dur);
-  osc.connect(g); g.connect(musicGain);
+  osc.connect(g); g.connect(destNode || musicGain);
   osc.start(time); osc.stop(time+dur+0.02);
 }
 
@@ -629,14 +714,127 @@ function playMatchChime(comboIdx){
   playTone(f*1.5, now+0.03, 0.2, 0.05, "sine");
 }
 
+/* Cheerful little ascending arpeggio for an ordinary 3-match */
+function playJingle(){
+  ensureAudio();
+  const now = actx.currentTime;
+  const notes = [659.25, 830.61, 987.77];
+  notes.forEach((f,i)=> playTone(f, now+i*0.07, 0.2, 0.22, "triangle", sfxGain));
+}
+
+/* Quick pitch-rising "zip" for a 4 or 5 match */
+function playZip(){
+  ensureAudio();
+  const now = actx.currentTime;
+  const osc = actx.createOscillator();
+  const g = actx.createGain();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(300, now);
+  osc.frequency.exponentialRampToValueAtTime(1600, now+0.16);
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.linearRampToValueAtTime(0.28, now+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+0.2);
+  osc.connect(g); g.connect(sfxGain);
+  osc.start(now); osc.stop(now+0.22);
+}
+
+/* Triumphant "Ta-Da" for an L/T-shaped combo match */
+function playTadaSound(){
+  ensureAudio();
+  const now = actx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.50];
+  notes.forEach((f,i)=> playTone(f, now+i*0.1, 0.36, 0.26, "triangle", sfxGain));
+  playTone(1568.0, now+0.4, 0.32, 0.18, "sine", sfxGain);
+}
+
+/* Classifies a resolved match set so the right sound/popup plays:
+   - "combo": any cell belongs to both a row run and a column run (L/T shape)
+   - "five"/"four": the longest single run in the match
+   - "three": a plain 3-in-a-row/column */
+function classifyMatchEvent(rowRuns, colRuns, tierMap){
+  const hasCombo = Array.from(tierMap.values()).some(t=>t===3);
+  if (hasCombo) return "combo";
+  let maxLen = 0;
+  rowRuns.forEach(r=>{ if (r.length>maxLen) maxLen = r.length; });
+  colRuns.forEach(r=>{ if (r.length>maxLen) maxLen = r.length; });
+  if (maxLen>=5) return "five";
+  if (maxLen===4) return "four";
+  return "three";
+}
+
+function playMatchEventSound(eventType){
+  if (eventType==="combo") playTadaSound();
+  else if (eventType==="four" || eventType==="five") playZip();
+  else playJingle();
+}
+
+/* Spawns a small floating label over the matched cells. It pops in and
+   holds for a moment so the player can actually read it, then flies up
+   to the score HUD and fades out. */
+function spawnScorePopup(text, matchedKeys, isCombo){
+  const hudEl = document.getElementById("hudScore");
+  if (!hudEl || !matchedKeys || matchedKeys.size===0) return;
+  let sumX=0, sumY=0, count=0;
+  matchedKeys.forEach(key=>{
+    const [r,c] = key.split(",").map(Number);
+    const el = cellEl(r,c);
+    if (el){
+      const rect = el.getBoundingClientRect();
+      sumX += rect.left + rect.width/2;
+      sumY += rect.top + rect.height/2;
+      count++;
+    }
+  });
+  if (count===0) return;
+  const startX = sumX/count, startY = sumY/count;
+  const hudRect = hudEl.getBoundingClientRect();
+  const endX = hudRect.left + hudRect.width/2;
+  const endY = hudRect.top + hudRect.height/2;
+
+  const pop = document.createElement("div");
+  pop.className = "score-popup" + (isCombo ? " combo" : "");
+  pop.textContent = text;
+  pop.style.left = startX + "px";
+  pop.style.top = startY + "px";
+  pop.style.opacity = "0";
+  pop.style.transform = "translate(-50%,-50%) scale(0.4)";
+  pop.style.transition = "transform .18s cubic-bezier(.34,1.56,.64,1), opacity .12s ease";
+  document.body.appendChild(pop);
+  pop.getBoundingClientRect(); // force layout before animating
+
+  const POP_IN_MS = 160;   // quick bounce-in
+  const HOLD_MS = 500;     // pause so it can actually be read
+  const FLY_MS = 480;      // flight up to the score
+
+  requestAnimationFrame(()=>{
+    pop.style.opacity = "1";
+    pop.style.transform = "translate(-50%,-50%) scale(1.12)";
+  });
+  setTimeout(()=>{
+    pop.style.transition = "transform .12s ease";
+    pop.style.transform = "translate(-50%,-50%) scale(1)";
+  }, POP_IN_MS);
+  setTimeout(()=>{
+    pop.style.transition = `transform ${FLY_MS}ms cubic-bezier(.3,.1,.2,1), opacity ${FLY_MS}ms ease ${Math.round(FLY_MS*0.55)}ms`;
+    pop.style.transform = `translate(-50%,-50%) translate(${endX-startX}px, ${endY-startY}px) scale(0.3)`;
+    pop.style.opacity = "0";
+  }, POP_IN_MS + HOLD_MS);
+  setTimeout(()=>{
+    if (pop.parentNode) pop.parentNode.removeChild(pop);
+  }, POP_IN_MS + HOLD_MS + FLY_MS + 60);
+}
+
 function setMusicEnabled(on){
   state.musicOn = on;
   if (musicGain) musicGain.gain.value = on ? state.musicVolume*0.18 : 0;
+  if (sfxGain) sfxGain.gain.value = on ? 0.9 : 0;
   document.getElementById("musicToggle").classList.toggle("off", !on);
+  saveState();
 }
 function setMusicVolume(v){
   state.musicVolume = v;
   if (musicGain && state.musicOn) musicGain.gain.value = v*0.18;
+  saveState();
 }
 
 /* =========================================================
@@ -1061,17 +1259,27 @@ function buildBoardForLevel(w,l){
   return {grid, size, colors, shapes};
 }
 
-function startLevel(w,l){
+function startLevel(w,l,resumeData){
   state.curWorld = w; state.curLevel = l;
-  const {grid,size,colors,shapes} = buildBoardForLevel(w,l);
+  saveState();
+  let grid,size,colors,shapes,score,moves,target,warnedLastMove;
+  if (resumeData){
+    grid = resumeData.grid; size = resumeData.size;
+    colors = resumeData.colors; shapes = resumeData.shapes;
+    score = resumeData.score; moves = resumeData.moves;
+    target = resumeData.target; warnedLastMove = !!resumeData.warnedLastMove;
+  } else {
+    ({grid,size,colors,shapes} = buildBoardForLevel(w,l));
+    score = 0; moves = movesFor(w,l); target = targetFor(w,l); warnedLastMove = false;
+  }
   G = {
     w,l,grid,size,colors,shapes,
-    score:0,
-    moves: movesFor(w,l),
-    target: targetFor(w,l),
+    score,
+    moves,
+    target,
     selected: null,
     busy:false,
-    warnedLastMove:false,
+    warnedLastMove,
   };
   document.getElementById("gWorldName").textContent = "WORLD " + (w+1) + " \u2014 " + WORLDS[w].name;
   document.getElementById("gLevelName").textContent = "LEVEL " + (l+1);
@@ -1080,7 +1288,8 @@ function startLevel(w,l){
   showScreen("screen-game");
   ensureAudio();
   scheduleMusicLoop();
-  showBanner("Welcome to Dave's Madness!", false);
+  showBanner(resumeData ? "Welcome back! Right where you left off." : "Welcome to Dave's Madness!", false);
+  saveInProgressLevel();
 }
 
 function updateHud(){
@@ -1215,7 +1424,7 @@ function attemptSwap(r1,c1,r2,c2){
 
 function resolveMatches(comboIdx){
   const {rowRuns, colRuns} = findMatchGroups(G.grid, G.size);
-  const {matchedSet: matches, baseScore} = scoreMatchGroups(rowRuns, colRuns);
+  const {matchedSet: matches, baseScore, tierMap} = scoreMatchGroups(rowRuns, colRuns);
   if (matches.size===0){
     if (!hasValidMove() && G.moves>0){
       showBanner("No matches left on the board — Dave's shuffling it!", false);
@@ -1233,7 +1442,11 @@ function resolveMatches(comboIdx){
     postMoveCheck();
     return;
   }
-  playMatchChime(comboIdx);
+  const matchEvent = classifyMatchEvent(rowRuns, colRuns, tierMap);
+  playMatchEventSound(matchEvent);
+  if (matchEvent==="four") spawnScorePopup("4", matches, false);
+  else if (matchEvent==="five") spawnScorePopup("5", matches, false);
+  else if (matchEvent==="combo") spawnScorePopup("Combo", matches, true);
   // unlock neighbors of matched cells
   matches.forEach(key=>{
     const [r,c] = key.split(",").map(Number);
@@ -1285,10 +1498,12 @@ function resolveMatches(comboIdx){
 
 function postMoveCheck(){
   if (G.score >= G.target){
+    clearInProgressLevel();
     setTimeout(()=>onLevelWin(), 250);
     return;
   }
   if (G.moves <= 0){
+    clearInProgressLevel();
     setTimeout(()=>onLevelLose(), 250);
     return;
   }
@@ -1296,6 +1511,7 @@ function postMoveCheck(){
     G.warnedLastMove = true;
     showBanner("You only have one try left! Dave's going to win!", true);
   }
+  saveInProgressLevel();
 }
 
 /* =========================================================
@@ -1316,6 +1532,7 @@ function onLevelWin(){
   const isLastLevel = (G.w===9 && G.l===9);
   const completedWorld = (G.l===9);
   state.pendingPromotionWorld = (completedWorld && !isLastLevel) ? (G.w+1) : null;
+  saveState();
 
   document.getElementById("winStars").textContent = "\u2605".repeat(st) + "\u2606".repeat(3-st);
   document.getElementById("winScore").textContent = G.score;
@@ -1437,6 +1654,7 @@ document.getElementById("hofSubmitBtn").addEventListener("click", ()=>{
   const name = (input.value || "Anonymous Foreman").trim().slice(0,18);
   state.hallOfFame.push(name || "Anonymous Foreman");
   input.value = "";
+  saveState();
   hideOverlay("hofOverlay");
   goHome();
 });
@@ -1499,8 +1717,16 @@ document.getElementById("pinCancelBtn").addEventListener("click", ()=>{
 /* =========================================================
    INIT
    ========================================================= */
+loadState();
+document.getElementById("musicVolume").value = Math.round(state.musicVolume*100);
+document.getElementById("musicToggle").classList.toggle("off", !state.musicOn);
 renderWorldGrid();
 renderHallOfFame();
+
+const savedInProgress = loadInProgressLevel();
+if (savedInProgress){
+  startLevel(savedInProgress.w, savedInProgress.l, savedInProgress);
+}
 
 })();
 </script>
