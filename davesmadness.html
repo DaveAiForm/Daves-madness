@@ -246,6 +246,16 @@
   .hud-pill.target .val{color:var(--accent-acid);}
   .hud-pill.moves .val{color:var(--accent-hot);}
   .hud-pill.score .val{color:var(--accent-sky);}
+  .hud-pill.legend{
+    display:flex;gap:10px;padding:6px 10px;min-width:0;
+  }
+  .hud-pill.legend .legend-item{
+    display:flex;flex-direction:column;align-items:center;gap:1px;
+    font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0;
+  }
+  .hud-pill.legend .legend-item b{
+    font-size:12px;font-weight:900;color:var(--accent-amber);
+  }
   .level-title-row{
     width:100%;max-width:520px;text-align:center;margin-bottom:6px;
   }
@@ -387,6 +397,7 @@
 
   @media (max-width:380px){
     .hud-pill{min-width:54px;padding:6px 8px;}
+    .hud-pill.legend{gap:6px;padding:6px 7px;}
   }
 </style>
 </head>
@@ -444,6 +455,12 @@
 
     <div class="hud">
       <div class="hud-pill score"><span class="val" id="hudScore">0</span>SCORE</div>
+      <div class="hud-pill legend">
+        <span class="legend-item">3<b>&times;1</b></span>
+        <span class="legend-item">4<b>&times;2</b></span>
+        <span class="legend-item">5<b>&times;3</b></span>
+        <span class="legend-item">Combo<b>&times;4</b></span>
+      </div>
       <div class="hud-pill target"><span class="val" id="hudTarget">0</span>TARGET</div>
       <div class="hud-pill moves"><span class="val" id="hudMoves">0</span>MOVES</div>
     </div>
@@ -455,6 +472,7 @@
     <div class="game-bottom-bar">
       <button class="ghost-btn" id="quitBtn">&larr; Quit to Map</button>
       <button class="ghost-btn" id="restartBtn">&#8635; Restart Level</button>
+      <button class="ghost-btn" id="forceWinBtn" style="display:none;">&#9889; Force Win (test)</button>
     </div>
   </div>
 
@@ -464,6 +482,7 @@
 <div class="overlay" id="winOverlay">
   <div class="overlay-card">
     <h2 class="display">LEVEL CLEAR!</h2>
+    <p class="stat-line" id="winWorldLevel" style="color:var(--text-muted);"></p>
     <div class="stars-big" id="winStars">&#9733;&#9733;&#9733;</div>
     <p class="stat-line">Score: <b id="winScore">0</b> / Target <b id="winTarget">0</b></p>
     <button class="overlay-btn" id="nextLevelBtn">Next Level &rarr;</button>
@@ -498,6 +517,7 @@
 <div class="overlay" id="promotionOverlay">
   <div class="overlay-card">
     <h2 class="display" style="color:var(--accent-acid);">CONGRATULATIONS</h2>
+    <p class="stat-line" id="promoWorldLevel" style="color:var(--text-muted);"></p>
     <p class="stat-line" id="promoLeadText" style="font-size:16px;">You are a</p>
     <p id="promoWorldName" style="font-weight:900;font-size:clamp(22px,6.5vw,30px);line-height:1.2;color:var(--text-light);text-shadow:2px 2px 0 var(--accent-hot);margin:6px 0 4px;"></p>
     <button class="overlay-btn" id="promoContinueBtn">Continue &rarr;</button>
@@ -508,10 +528,20 @@
 <div class="overlay" id="hofOverlay">
   <div class="overlay-card">
     <h2 class="display" style="color:var(--accent-amber);">YOU SURVIVED!</h2>
+    <p class="stat-line" id="hofWorldLevel" style="color:var(--text-muted);"></p>
     <p class="stat-line">You beat all 100 levels of Dave's Madness.<br>Add your name to the Hall of Fame:</p>
     <input type="text" id="hofNameInput" maxlength="18" placeholder="Your name">
     <button class="overlay-btn" id="hofSubmitBtn">Add My Name</button>
     <button class="overlay-btn secondary" id="hofSkipBtn">Skip</button>
+  </div>
+</div>
+
+<!-- FIRST-TIME WELCOME OVERLAY -->
+<div class="overlay" id="welcomeOverlay">
+  <div class="overlay-card">
+    <h2 class="display" style="color:var(--accent-acid);">WELCOME TO THE GAME</h2>
+    <p class="stat-line">Dave's Madness is about to begin.<br>Ready to clear your first level?</p>
+    <button class="overlay-btn" id="welcomeStartBtn">Start &rarr;</button>
   </div>
 </div>
 
@@ -534,6 +564,8 @@ const WORLDS = [
   { name:"Ass Foreman", colors:["#00695c","#00897b","#b07a3a","#4e342e","#26a69a","#80cbc4","#a1887f"] },
   { name:"Super Foreman", colors:["#e53935","#fb8c00","#fdd835","#43a047","#1e88e5","#8e24aa","#d81b60"] },
 ];
+
+function worldLevelLabel(w,l){ return "World " + (w+1) + " — " + WORLDS[w].name + ", Level " + (l+1) + " complete"; }
 
 function boardSizeFor(w){ return w<3?6 : w<6?7 : w<8?8 : 9; }
 function colorCountFor(w){ return w<2?4 : w<4?5 : w<6?6 : 7; }
@@ -566,6 +598,7 @@ const state = {
   curLevel: 0,
   selectedWorldForMap: null,
   testMode: false,
+  seenWelcome: false,
 };
 
 function globalIdx(w,l){ return w*10+l; }
@@ -595,6 +628,7 @@ function saveState(){
       musicVolume: state.musicVolume,
       curWorld: state.curWorld,
       curLevel: state.curLevel,
+      seenWelcome: state.seenWelcome,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   }catch(e){ /* storage unavailable (private browsing, etc.) — fail silently */ }
@@ -611,6 +645,7 @@ function loadState(){
     if (typeof data.musicVolume === "number") state.musicVolume = data.musicVolume;
     if (typeof data.curWorld === "number") state.curWorld = data.curWorld;
     if (typeof data.curLevel === "number") state.curLevel = data.curLevel;
+    if (typeof data.seenWelcome === "boolean") state.seenWelcome = data.seenWelcome;
   }catch(e){ /* corrupted save — ignore and start fresh */ }
 }
 
@@ -752,7 +787,7 @@ function playTadaSound(){
    - "five"/"four": the longest single run in the match
    - "three": a plain 3-in-a-row/column */
 function classifyMatchEvent(rowRuns, colRuns, tierMap){
-  const hasCombo = Array.from(tierMap.values()).some(t=>t===3);
+  const hasCombo = Array.from(tierMap.values()).some(t=>t===4);
   if (hasCombo) return "combo";
   let maxLen = 0;
   rowRuns.forEach(r=>{ if (r.length>maxLen) maxLen = r.length; });
@@ -766,6 +801,63 @@ function playMatchEventSound(eventType){
   if (eventType==="combo") playTadaSound();
   else if (eventType==="four" || eventType==="five") playZip();
   else playJingle();
+}
+
+/* =========================================================
+   VOICE / STORY CLIPS (level-win voices, welcome clip, world
+   promotion clips). Files live alongside this HTML file.
+   Clips are preloaded once into a shared cache so playback on
+   click is instant and doesn't race the browser's file load.
+   ========================================================= */
+const VOICE_CLIPS = [
+  "wendi.mp3","mary.mp3","john.mp3","elsa.mp3","tonya.mp3",
+  "chuck.mp3","jessica.mp3","mike.mp3","chris.mp3","kody.mp3"
+];
+const WORLD_PROMO_CLIPS = ["2.mp3","3.mp3","4.mp3","5.mp3","6.mp3","7.mp3","8.mp3","9.mp3","10.mp3"];
+const WELCOME_CLIP = "welcome_to_daves.mp3";
+const HOF_CLIP = "thank you 2.mp3";
+
+const AUDIO_CLIP_CACHE = {};
+function getClip(file){
+  let clip = AUDIO_CLIP_CACHE[file];
+  if (!clip){
+    clip = new Audio(file);
+    clip.preload = "auto";
+    try{ clip.load(); }catch(e){ /* ignore */ }
+    AUDIO_CLIP_CACHE[file] = clip;
+  }
+  return clip;
+}
+function preloadAllClips(){
+  VOICE_CLIPS.concat(WORLD_PROMO_CLIPS, [WELCOME_CLIP, HOF_CLIP]).forEach(getClip);
+}
+function playClipFile(file){
+  try{
+    const clip = getClip(file);
+    clip.pause();
+    clip.currentTime = 0;
+    clip.volume = 1;
+    const p = clip.play();
+    if (p && p.catch) p.catch(()=>{
+      // First attempt can be rejected by autoplay policy on some browsers;
+      // retry once with a fresh element as a fallback.
+      try{
+        const retry = new Audio(file);
+        retry.volume = 1;
+        retry.play().catch(()=>{ /* still blocked/missing — fail silently */ });
+      }catch(e2){ /* ignore */ }
+    });
+  }catch(e){ /* audio unsupported — fail silently */ }
+}
+function playRandomVoiceClip(){
+  const file = VOICE_CLIPS[Math.floor(Math.random()*VOICE_CLIPS.length)];
+  playClipFile(file);
+}
+function playWelcomeClip(){ playClipFile(WELCOME_CLIP); }
+// nextWorldIdx is 0-based (1 = World 2 ... 9 = World 10), matching files 2.mp3..10.mp3
+function playWorldPromotionClip(nextWorldIdx){
+  const worldNumber = nextWorldIdx + 1;
+  if (worldNumber>=2 && worldNumber<=10) playClipFile(worldNumber + ".mp3");
 }
 
 /* Spawns a small floating label over the matched cells. It pops in and
@@ -982,6 +1074,10 @@ function renderWorldGrid(){
     card.disabled = !unlocked;
     card.addEventListener("click", ()=>{
       ensureAudio(); playClick();
+      if (w===0 && !state.seenWelcome){
+        showOverlay("welcomeOverlay");
+        return;
+      }
       openWorldLevels(w);
     });
     grid.appendChild(card);
@@ -1126,23 +1222,25 @@ function findMatchGroups(grid, size){
 }
 
 /* Tiered scoring:
-   - a plain 3-in-a-row/column = 1x
-   - a 4-in-a-row/column = 2x (double)
+   - a plain 3-in-a-row/column = 1x (same)
+   - a 4-in-a-row/column = 2x (double points)
+   - a 5-or-longer-in-a-row/column = 3x (triple points)
    - a cell that's part of both a row run AND a column run at once (an
-     L/T-shaped combo) = 3x (triple), overriding the length-based tier */
+     L/T-shaped combo) = 4x, overriding the length-based tier */
 function scoreMatchGroups(rowRuns, colRuns){
   const tierMap = new Map();
   const inRow = new Set(), inCol = new Set();
+  const tierForRun = len => len>=5 ? 3 : (len>=4 ? 2 : 1);
   rowRuns.forEach(run=>{
-    const tier = run.length>=4 ? 2 : 1;
+    const tier = tierForRun(run.length);
     run.forEach(k=>{ inRow.add(k); tierMap.set(k, Math.max(tierMap.get(k)||0, tier)); });
   });
   colRuns.forEach(run=>{
-    const tier = run.length>=4 ? 2 : 1;
+    const tier = tierForRun(run.length);
     run.forEach(k=>{ inCol.add(k); tierMap.set(k, Math.max(tierMap.get(k)||0, tier)); });
   });
   tierMap.forEach((tier,key)=>{
-    if (inRow.has(key) && inCol.has(key)) tierMap.set(key, 3);
+    if (inRow.has(key) && inCol.has(key)) tierMap.set(key, 4);
   });
   const matchedSet = new Set(tierMap.keys());
   let baseScore = 0;
@@ -1456,8 +1554,8 @@ function resolveMatches(comboIdx){
       }
     });
   });
-  // score: baseScore already includes the 4-in-a-row (2x) / combo (3x) tiers,
-  // then the usual cascade multiplier stacks on top for chained matches
+  // score: baseScore already includes the 4-in-a-row (2x) / 5-in-a-row (3x) /
+  // combo (4x) tiers, then the usual cascade multiplier stacks on top for chained matches
   const cascadeMultiplier = 1 + comboIdx*0.5;
   G.score += Math.round(baseScore * cascadeMultiplier);
   updateHud();
@@ -1535,29 +1633,23 @@ function onLevelWin(){
   saveState();
 
   document.getElementById("winStars").textContent = "\u2605".repeat(st) + "\u2606".repeat(3-st);
+  document.getElementById("winWorldLevel").textContent = worldLevelLabel(G.w, G.l);
   document.getElementById("winScore").textContent = G.score;
   document.getElementById("winTarget").textContent = G.target;
   document.getElementById("nextLevelBtn").style.display = isLastLevel ? "none" : "block";
 
   showOverlay("winOverlay");
   burstConfetti();
+  playRandomVoiceClip();
 
   if (isLastLevel){
     setTimeout(()=>{
       hideOverlay("winOverlay");
+      document.getElementById("hofWorldLevel").textContent = worldLevelLabel(G.w, G.l);
       showOverlay("hofOverlay");
+      playClipFile(HOF_CLIP);
     }, 1400);
   }
-}
-
-function speakText(text){
-  try{
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95; u.pitch = 1.0; u.volume = 1;
-    window.speechSynthesis.speak(u);
-  }catch(e){ /* speech synthesis unsupported — fail silently */ }
 }
 
 let pendingContinueAction = null;
@@ -1578,15 +1670,25 @@ function articleFor(title){
 function showPromotion(nextWorldIdx, continueFn){
   const title = promoTitleFor(nextWorldIdx);
   const article = articleFor(title);
+  document.getElementById("promoWorldLevel").textContent = worldLevelLabel(G.w, G.l);
   document.getElementById("promoLeadText").textContent = article ? `You are ${article}` : "You are";
   document.getElementById("promoWorldName").textContent = title;
   showOverlay("promotionOverlay");
-  speakText(`Congratulations, you are ${article ? article+" " : ""}${title}!`);
+  playWorldPromotionClip(nextWorldIdx);
   pendingContinueAction = continueFn;
 }
 document.getElementById("promoContinueBtn").addEventListener("click", ()=>{
   hideOverlay("promotionOverlay");
   if (pendingContinueAction){ const fn = pendingContinueAction; pendingContinueAction = null; fn(); }
+});
+
+document.getElementById("welcomeStartBtn").addEventListener("click", ()=>{
+  ensureAudio();
+  hideOverlay("welcomeOverlay");
+  state.seenWelcome = true;
+  saveState();
+  playWelcomeClip();
+  startLevel(0,0);
 });
 
 function onLevelLose(){
@@ -1602,7 +1704,7 @@ document.getElementById("nextLevelBtn").addEventListener("click", ()=>{
   hideOverlay("winOverlay");
   let w = G.w, l = G.l+1;
   if (l>9){ w++; l=0; }
-  const doNav = ()=>{ goHomeWithConfettiContext(); openWorldLevels(w); };
+  const doNav = ()=>{ startLevel(w,l); };
   if (state.pendingPromotionWorld!=null){
     const nw = state.pendingPromotionWorld; state.pendingPromotionWorld = null;
     showPromotion(nw, doNav);
@@ -1633,6 +1735,12 @@ document.getElementById("quitBtn").addEventListener("click", ()=>{
 });
 document.getElementById("restartBtn").addEventListener("click", ()=>{
   if (G) startLevel(G.w, G.l);
+});
+document.getElementById("forceWinBtn").addEventListener("click", ()=>{
+  if (!G || !state.testMode) return;
+  G.score = G.target;
+  updateHud();
+  postMoveCheck();
 });
 
 function goHome(){
@@ -1676,6 +1784,12 @@ document.getElementById("musicVolume").addEventListener("input", function(e){
 });
 document.getElementById("testModeToggle").addEventListener("click", function(){
   state.testMode = !state.testMode;
+  document.getElementById("forceWinBtn").style.display = state.testMode ? "inline-flex" : "none";
+  if (state.testMode){
+    // let testers re-trigger the World 1 welcome popup on demand
+    state.seenWelcome = false;
+    saveState();
+  }
   // refresh whichever view is currently showing
   if (document.getElementById("levelView").style.display !== "none" && state.selectedWorldForMap!=null){
     openWorldLevels(state.selectedWorldForMap);
@@ -1718,6 +1832,7 @@ document.getElementById("pinCancelBtn").addEventListener("click", ()=>{
    INIT
    ========================================================= */
 loadState();
+preloadAllClips();
 document.getElementById("musicVolume").value = Math.round(state.musicVolume*100);
 document.getElementById("musicToggle").classList.toggle("off", !state.musicOn);
 renderWorldGrid();
