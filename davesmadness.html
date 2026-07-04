@@ -816,6 +816,7 @@ const VOICE_CLIPS = [
 const WORLD_PROMO_CLIPS = ["2.mp3","3.mp3","4.mp3","5.mp3","6.mp3","7.mp3","8.mp3","9.mp3","10.mp3"];
 const WELCOME_CLIP = "welcome_to_daves.mp3";
 const HOF_CLIP = "thank you 2.mp3";
+const OUT_OF_MOVES_CLIPS = ["outofmoves1.mp3","outofmoves2.mp3","outofmoves3.mp3","outofmoves4.mp3","outofmoves5.mp3","outofmoves6.mp3"];
 
 const AUDIO_CLIP_CACHE = {};
 function getClip(file){
@@ -829,7 +830,7 @@ function getClip(file){
   return clip;
 }
 function preloadAllClips(){
-  VOICE_CLIPS.concat(WORLD_PROMO_CLIPS, [WELCOME_CLIP, HOF_CLIP]).forEach(getClip);
+  VOICE_CLIPS.concat(WORLD_PROMO_CLIPS, OUT_OF_MOVES_CLIPS, [WELCOME_CLIP, HOF_CLIP]).forEach(getClip);
 }
 function playClipFile(file){
   try{
@@ -851,6 +852,15 @@ function playClipFile(file){
 }
 function playRandomVoiceClip(){
   const file = VOICE_CLIPS[Math.floor(Math.random()*VOICE_CLIPS.length)];
+  playClipFile(file);
+}
+let lastOutOfMovesClip = null;
+function playRandomOutOfMovesClip(){
+  let file = OUT_OF_MOVES_CLIPS[Math.floor(Math.random()*OUT_OF_MOVES_CLIPS.length)];
+  while (OUT_OF_MOVES_CLIPS.length>1 && file===lastOutOfMovesClip){
+    file = OUT_OF_MOVES_CLIPS[Math.floor(Math.random()*OUT_OF_MOVES_CLIPS.length)];
+  }
+  lastOutOfMovesClip = file;
   playClipFile(file);
 }
 function playWelcomeClip(){ playClipFile(WELCOME_CLIP); }
@@ -1695,6 +1705,7 @@ function onLevelLose(){
   document.getElementById("loseScore").textContent = G.score;
   document.getElementById("loseTarget").textContent = G.target;
   showOverlay("loseOverlay");
+  playRandomOutOfMovesClip();
 }
 
 function showOverlay(id){ document.getElementById(id).classList.add("show"); }
