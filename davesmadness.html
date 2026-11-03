@@ -303,6 +303,12 @@
   .gem.shape-pentagon{border-radius:3px;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);}
   .gem.shape-hexagon{border-radius:3px;clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0% 50%);}
   .gem.shape-star{border-radius:3px;clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);}
+  /* clip-art piece: transparent PNG shown as-is (no circle/clip) */
+  .gem.img-piece{
+    width:90%;height:90%;border-radius:0;clip-path:none;box-shadow:none;
+    background-color:transparent;background-repeat:no-repeat;background-position:center;background-size:contain;
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.5));
+  }
 
   /* ---------- Score popup (pops in, holds, then flies to HUD score) ---------- */
   .score-popup{
@@ -317,6 +323,11 @@
     text-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 14px rgba(255,182,39,.75);
     pointer-events:none;
     white-space:nowrap;
+  }
+  .score-popup.five{
+    font-size:46px;
+    color:#fff36b;
+    text-shadow:0 2px 6px rgba(0,0,0,.7), 0 0 18px rgba(255,200,40,.95), 0 0 34px rgba(255,120,0,.7);
   }
   .score-popup.combo{
     font-size:24px;
@@ -567,6 +578,28 @@ const WORLDS = [
 
 function worldLevelLabel(w,l){ return "World " + (w+1) + " — " + WORLDS[w].name + ", Level " + (l+1) + " complete"; }
 
+/* ---- Clip-art pieces (files live in the images/ folder next to this HTML) ----
+   Lower worlds use beets only; the trucks and crew join as the worlds go up,
+   matching how the number of piece types grows (4 -> 5 -> 6 -> 7).
+   In the last three worlds Dave himself is the special piece (the old white gem). */
+const PIECE_IMG = {
+  beet_gold:"images/beet_gold.png", beet_red:"images/beet_red.png",
+  beets_orange:"images/beets_orange.png", beets_pale:"images/beets_pale.png",
+  truck:"images/truck.png", girl:"images/girl.png", guy:"images/guy.png", dave:"images/dave.png"
+};
+function piecesForWorld(w,count){
+  let keys;
+  if (w<2)       keys = ["beet_gold","beets_orange","beet_red","beets_pale"];
+  else if (w<4)  keys = ["beet_gold","beets_orange","beet_red","beets_pale","truck"];
+  else if (w<6)  keys = ["beet_gold","beets_orange","beet_red","beets_pale","truck","girl"];
+  else if (w<7)  keys = ["beet_gold","beets_orange","beet_red","beets_pale","truck","girl","guy"];
+  else           keys = ["beet_gold","beets_orange","beet_red","truck","girl","guy","dave"];
+  return keys.slice(0,count).map(k=>PIECE_IMG[k]);
+}
+function preloadPieceImages(){
+  Object.keys(PIECE_IMG).forEach(k=>{ const im = new Image(); im.src = PIECE_IMG[k]; });
+}
+
 function boardSizeFor(w){ return w<3?6 : w<6?7 : w<8?8 : 9; }
 function colorCountFor(w){ return w<2?4 : w<4?5 : w<6?6 : 7; }
 function movesFor(w,l){ return Math.max(12, Math.round(30 - w*1.6 - l*0.9)); }
@@ -797,9 +830,103 @@ function classifyMatchEvent(rowRuns, colRuns, tierMap){
   return "three";
 }
 
+/* One brass-style note: two slightly detuned saw waves through a low-pass
+   filter that opens up on the attack, so it sounds like a horn rather than a beep. */
+function brassNote(freq, t, dur, vol){
+  [-5,5].forEach(det=>{
+    const osc = actx.createOscillator();
+    const filt = actx.createBiquadFilter();
+    const g = actx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.value = freq;
+    osc.detune.value = det;
+    filt.type = "lowpass";
+    filt.frequency.setValueAtTime(700, t);
+    filt.frequency.linearRampToValueAtTime(3200, t+0.06);
+    filt.frequency.linearRampToValueAtTime(1800, t+dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t+0.03);
+    g.gain.setValueAtTime(vol, t+Math.max(0.04, dur-0.1));
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    osc.connect(filt); filt.connect(g); g.connect(sfxGain);
+    osc.start(t); osc.stop(t+dur+0.03);
+  });
+}
+
+/* Big celebration for a 5-match: rising horn call, a held major chord with
+   a drum boom and cymbal crash, then a sparkle run. About 1.6 seconds. */
+function playFanfare(){
+  ensureAudio();
+  const t0 = actx.currentTime + 0.02;
+  // rising call: G  C  E  G
+  [[392.00,0.00,0.12],[523.25,0.11,0.12],[659.25,0.22,0.12],[783.99,0.33,0.16]]
+    .forEach(([f,dt,d])=> brassNote(f, t0+dt, d, 0.11));
+  // held C major chord
+  const tc = t0 + 0.52;
+  [523.25,659.25,783.99,1046.50].forEach(f=> brassNote(f, tc, 0.95, 0.09));
+  brassNote(130.81, tc, 0.95, 0.12);
+  // drum boom
+  const boom = actx.createOscillator(), bg = actx.createGain();
+  boom.type = "sine";
+  boom.frequency.setValueAtTime(170, tc);
+  boom.frequency.exponentialRampToValueAtTime(42, tc+0.45);
+  bg.gain.setValueAtTime(0.45, tc);
+  bg.gain.exponentialRampToValueAtTime(0.0001, tc+0.55);
+  boom.connect(bg); bg.connect(sfxGain);
+  boom.start(tc); boom.stop(tc+0.6);
+  // cymbal crash (filtered noise)
+  const len = Math.floor(actx.sampleRate*1.3);
+  const buf = actx.createBuffer(1, len, actx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i=0;i<len;i++) data[i] = Math.random()*2-1;
+  const noise = actx.createBufferSource(); noise.buffer = buf;
+  const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 6000;
+  const ng = actx.createGain();
+  ng.gain.setValueAtTime(0.0001, tc);
+  ng.gain.linearRampToValueAtTime(0.2, tc+0.01);
+  ng.gain.exponentialRampToValueAtTime(0.0001, tc+1.2);
+  noise.connect(hp); hp.connect(ng); ng.connect(sfxGain);
+  noise.start(tc); noise.stop(tc+1.3);
+  // sparkle run on top
+  [1568.0,2093.0,2637.0,3136.0,2637.0,3136.0,4186.0].forEach((f,i)=>
+    playTone(f, tc+0.18+i*0.075, 0.22, 0.07, "triangle", sfxGain));
+}
+
+/* Spoken "Nice combo!" — plays your own nicecombo.mp3 if you drop one next to
+   the game, otherwise uses the browser's built-in voice. Rate-limited so
+   cascading combos don't talk over themselves. */
+let lastNiceComboAt = 0;
+function sayNiceCombo(){
+  if (!state.musicOn) return;
+  const now = Date.now();
+  if (now - lastNiceComboAt < 2500) return;
+  lastNiceComboAt = now;
+  setTimeout(()=>{
+    let fellBack = false;
+    const fallback = ()=>{ if (fellBack) return; fellBack = true; speakNiceCombo(); };
+    try{
+      const clip = new Audio("nicecombo.mp3");
+      clip.volume = 1;
+      clip.addEventListener("error", fallback);
+      const p = clip.play();
+      if (p && p.catch) p.catch(fallback);
+    }catch(e){ fallback(); }
+  }, 450);
+}
+function speakNiceCombo(){
+  try{
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance("Nice combo!");
+    u.rate = 1.05; u.pitch = 1.1; u.volume = 1;
+    window.speechSynthesis.speak(u);
+  }catch(e){ /* speech unsupported — fail silently */ }
+}
+
 function playMatchEventSound(eventType){
   if (eventType==="combo") playTadaSound();
-  else if (eventType==="four" || eventType==="five") playZip();
+  else if (eventType==="five") playFanfare();
+  else if (eventType==="four") playZip();
   else playJingle();
 }
 
@@ -873,7 +1000,7 @@ function playWorldPromotionClip(nextWorldIdx){
 /* Spawns a small floating label over the matched cells. It pops in and
    holds for a moment so the player can actually read it, then flies up
    to the score HUD and fades out. */
-function spawnScorePopup(text, matchedKeys, isCombo){
+function spawnScorePopup(text, matchedKeys, isCombo, extraClass){
   const hudEl = document.getElementById("hudScore");
   if (!hudEl || !matchedKeys || matchedKeys.size===0) return;
   let sumX=0, sumY=0, count=0;
@@ -894,7 +1021,7 @@ function spawnScorePopup(text, matchedKeys, isCombo){
   const endY = hudRect.top + hudRect.height/2;
 
   const pop = document.createElement("div");
-  pop.className = "score-popup" + (isCombo ? " combo" : "");
+  pop.className = "score-popup" + (isCombo ? " combo" : "") + (extraClass ? " "+extraClass : "");
   pop.textContent = text;
   pop.style.left = startX + "px";
   pop.style.top = startY + "px";
@@ -1382,6 +1509,7 @@ function startLevel(w,l,resumeData){
   }
   G = {
     w,l,grid,size,colors,shapes,
+    pieces: piecesForWorld(w, colors.length),
     score,
     moves,
     target,
@@ -1425,8 +1553,14 @@ function renderBoardEl(newCells){
         const gem = document.createElement("div");
         const shapeIdx = G.colors.indexOf(data.color);
         const shapeName = (G.shapes && G.shapes[shapeIdx]) || "circle";
-        gem.className = "gem shape-" + shapeName;
-        gem.style.background = `radial-gradient(circle at 35% 30%, ${lighten(data.color)}, ${data.color})`;
+        const pieceImg = G.pieces && G.pieces[shapeIdx];
+        if (pieceImg){
+          gem.className = "gem img-piece";
+          gem.style.backgroundImage = `url("${pieceImg}")`;
+        } else {
+          gem.className = "gem shape-" + shapeName;
+          gem.style.background = `radial-gradient(circle at 35% 30%, ${lighten(data.color)}, ${data.color})`;
+        }
         cell.appendChild(gem);
       }
       cell.addEventListener("click", onCellClick);
@@ -1553,8 +1687,8 @@ function resolveMatches(comboIdx){
   const matchEvent = classifyMatchEvent(rowRuns, colRuns, tierMap);
   playMatchEventSound(matchEvent);
   if (matchEvent==="four") spawnScorePopup("4", matches, false);
-  else if (matchEvent==="five") spawnScorePopup("5", matches, false);
-  else if (matchEvent==="combo") spawnScorePopup("Combo", matches, true);
+  else if (matchEvent==="five") spawnScorePopup("5", matches, false, "five");
+  else if (matchEvent==="combo"){ spawnScorePopup("Combo", matches, true); sayNiceCombo(); }
   // unlock neighbors of matched cells
   matches.forEach(key=>{
     const [r,c] = key.split(",").map(Number);
@@ -1846,6 +1980,7 @@ loadState();
 preloadAllClips();
 document.getElementById("musicVolume").value = Math.round(state.musicVolume*100);
 document.getElementById("musicToggle").classList.toggle("off", !state.musicOn);
+preloadPieceImages();
 renderWorldGrid();
 renderHallOfFame();
 
