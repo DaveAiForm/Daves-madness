@@ -148,8 +148,15 @@
   /* ---------- World grid ---------- */
   .world-grid{
     width:100%;max-width:680px;
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    display:grid;grid-template-columns:repeat(2, 1fr);
     gap:12px;margin-top:14px;
+    align-items:start;
+  }
+  @media (min-width:480px){
+    .world-grid{grid-template-columns:repeat(3, 1fr);}
+  }
+  @media (min-width:680px){
+    .world-grid{grid-template-columns:repeat(4, 1fr);}
   }
   .world-card{
     position:relative;
@@ -239,6 +246,16 @@
   .hud-pill.target .val{color:var(--accent-acid);}
   .hud-pill.moves .val{color:var(--accent-hot);}
   .hud-pill.score .val{color:var(--accent-sky);}
+  .hud-pill.legend{
+    display:flex;gap:10px;padding:6px 10px;min-width:0;
+  }
+  .hud-pill.legend .legend-item{
+    display:flex;flex-direction:column;align-items:center;gap:1px;
+    font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0;
+  }
+  .hud-pill.legend .legend-item b{
+    font-size:12px;font-weight:900;color:var(--accent-amber);
+  }
   .level-title-row{
     width:100%;max-width:520px;text-align:center;margin-bottom:6px;
   }
@@ -286,6 +303,37 @@
   .gem.shape-pentagon{border-radius:3px;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);}
   .gem.shape-hexagon{border-radius:3px;clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0% 50%);}
   .gem.shape-star{border-radius:3px;clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);}
+  /* clip-art piece: transparent PNG shown as-is (no circle/clip) */
+  .gem.img-piece{
+    width:90%;height:90%;border-radius:0;clip-path:none;box-shadow:none;
+    background-color:transparent;background-repeat:no-repeat;background-position:center;background-size:contain;
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.5));
+  }
+
+  /* ---------- Score popup (pops in, holds, then flies to HUD score) ---------- */
+  .score-popup{
+    position:fixed;
+    left:0;top:0;
+    z-index:999;
+    font-family:Impact,"Arial Black",Haettenschweiler,sans-serif;
+    letter-spacing:1px;
+    font-size:32px;
+    font-weight:900;
+    color:var(--accent-amber);
+    text-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 14px rgba(255,182,39,.75);
+    pointer-events:none;
+    white-space:nowrap;
+  }
+  .score-popup.five{
+    font-size:46px;
+    color:#fff36b;
+    text-shadow:0 2px 6px rgba(0,0,0,.7), 0 0 18px rgba(255,200,40,.95), 0 0 34px rgba(255,120,0,.7);
+  }
+  .score-popup.combo{
+    font-size:24px;
+    color:var(--accent-hot);
+    text-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 16px rgba(255,61,127,.85);
+  }
   .cell.locked .gem{filter:brightness(.5) saturate(.6);}
   .cell.locked::after{
     content:"";position:absolute;inset:8%;
@@ -360,6 +408,7 @@
 
   @media (max-width:380px){
     .hud-pill{min-width:54px;padding:6px 8px;}
+    .hud-pill.legend{gap:6px;padding:6px 7px;}
   }
 </style>
 </head>
@@ -417,6 +466,12 @@
 
     <div class="hud">
       <div class="hud-pill score"><span class="val" id="hudScore">0</span>SCORE</div>
+      <div class="hud-pill legend">
+        <span class="legend-item">3<b>&times;1</b></span>
+        <span class="legend-item">4<b>&times;2</b></span>
+        <span class="legend-item">5<b>&times;3</b></span>
+        <span class="legend-item">Combo<b>&times;4</b></span>
+      </div>
       <div class="hud-pill target"><span class="val" id="hudTarget">0</span>TARGET</div>
       <div class="hud-pill moves"><span class="val" id="hudMoves">0</span>MOVES</div>
     </div>
@@ -428,6 +483,7 @@
     <div class="game-bottom-bar">
       <button class="ghost-btn" id="quitBtn">&larr; Quit to Map</button>
       <button class="ghost-btn" id="restartBtn">&#8635; Restart Level</button>
+      <button class="ghost-btn" id="forceWinBtn" style="display:none;">&#9889; Force Win (test)</button>
     </div>
   </div>
 
@@ -437,6 +493,7 @@
 <div class="overlay" id="winOverlay">
   <div class="overlay-card">
     <h2 class="display">LEVEL CLEAR!</h2>
+    <p class="stat-line" id="winWorldLevel" style="color:var(--text-muted);"></p>
     <div class="stars-big" id="winStars">&#9733;&#9733;&#9733;</div>
     <p class="stat-line">Score: <b id="winScore">0</b> / Target <b id="winTarget">0</b></p>
     <button class="overlay-btn" id="nextLevelBtn">Next Level &rarr;</button>
@@ -471,6 +528,7 @@
 <div class="overlay" id="promotionOverlay">
   <div class="overlay-card">
     <h2 class="display" style="color:var(--accent-acid);">CONGRATULATIONS</h2>
+    <p class="stat-line" id="promoWorldLevel" style="color:var(--text-muted);"></p>
     <p class="stat-line" id="promoLeadText" style="font-size:16px;">You are a</p>
     <p id="promoWorldName" style="font-weight:900;font-size:clamp(22px,6.5vw,30px);line-height:1.2;color:var(--text-light);text-shadow:2px 2px 0 var(--accent-hot);margin:6px 0 4px;"></p>
     <button class="overlay-btn" id="promoContinueBtn">Continue &rarr;</button>
@@ -481,10 +539,20 @@
 <div class="overlay" id="hofOverlay">
   <div class="overlay-card">
     <h2 class="display" style="color:var(--accent-amber);">YOU SURVIVED!</h2>
+    <p class="stat-line" id="hofWorldLevel" style="color:var(--text-muted);"></p>
     <p class="stat-line">You beat all 100 levels of Dave's Madness.<br>Add your name to the Hall of Fame:</p>
     <input type="text" id="hofNameInput" maxlength="18" placeholder="Your name">
     <button class="overlay-btn" id="hofSubmitBtn">Add My Name</button>
     <button class="overlay-btn secondary" id="hofSkipBtn">Skip</button>
+  </div>
+</div>
+
+<!-- FIRST-TIME WELCOME OVERLAY -->
+<div class="overlay" id="welcomeOverlay">
+  <div class="overlay-card">
+    <h2 class="display" style="color:var(--accent-acid);">WELCOME TO THE GAME</h2>
+    <p class="stat-line">Dave's Madness is about to begin.<br>Ready to clear your first level?</p>
+    <button class="overlay-btn" id="welcomeStartBtn">Start &rarr;</button>
   </div>
 </div>
 
@@ -508,6 +576,30 @@ const WORLDS = [
   { name:"Super Foreman", colors:["#e53935","#fb8c00","#fdd835","#43a047","#1e88e5","#8e24aa","#d81b60"] },
 ];
 
+function worldLevelLabel(w,l){ return "World " + (w+1) + " — " + WORLDS[w].name + ", Level " + (l+1) + " complete"; }
+
+/* ---- Clip-art pieces (files live in the images/ folder next to this HTML) ----
+   Lower worlds use beets only; the trucks and crew join as the worlds go up,
+   matching how the number of piece types grows (4 -> 5 -> 6 -> 7).
+   In the last three worlds Dave himself is the special piece (the old white gem). */
+const PIECE_IMG = {
+  beet_gold:"images/beet_gold.png", beet_red:"images/beet_red.png",
+  beets_orange:"images/beets_orange.png", beets_pale:"images/beets_pale.png",
+  truck:"images/truck.png", girl:"images/girl.png", guy:"images/guy.png", dave:"images/dave.png"
+};
+function piecesForWorld(w,count){
+  let keys;
+  if (w<2)       keys = ["beet_gold","beets_orange","beet_red","beets_pale"];
+  else if (w<4)  keys = ["beet_gold","beets_orange","beet_red","beets_pale","truck"];
+  else if (w<6)  keys = ["beet_gold","beets_orange","beet_red","beets_pale","truck","girl"];
+  else if (w<7)  keys = ["beet_gold","beets_orange","beet_red","beets_pale","truck","girl","guy"];
+  else           keys = ["beet_gold","beets_orange","beet_red","truck","girl","guy","dave"];
+  return keys.slice(0,count).map(k=>PIECE_IMG[k]);
+}
+function preloadPieceImages(){
+  Object.keys(PIECE_IMG).forEach(k=>{ const im = new Image(); im.src = PIECE_IMG[k]; });
+}
+
 function boardSizeFor(w){ return w<3?6 : w<6?7 : w<8?8 : 9; }
 function colorCountFor(w){ return w<2?4 : w<4?5 : w<6?6 : 7; }
 function movesFor(w,l){ return Math.max(12, Math.round(30 - w*1.6 - l*0.9)); }
@@ -525,7 +617,8 @@ function lockedCountFor(w,l){
 }
 
 /* =========================================================
-   STATE (in-memory only, resets on reload — no internet needed)
+   STATE (progress/settings are saved to localStorage so the
+   player picks up where they left off in this browser)
    ========================================================= */
 const state = {
   completed: new Array(100).fill(false), // flat w*10+l
@@ -538,6 +631,7 @@ const state = {
   curLevel: 0,
   selectedWorldForMap: null,
   testMode: false,
+  seenWelcome: false,
 };
 
 function globalIdx(w,l){ return w*10+l; }
@@ -554,10 +648,73 @@ function isWorldUnlocked(w){
 }
 
 /* =========================================================
+   SAVE / LOAD (localStorage — remembers progress in this browser)
+   ========================================================= */
+const SAVE_KEY = "davesMadnessSave_v1";
+function saveState(){
+  try{
+    const data = {
+      completed: state.completed,
+      stars: state.stars,
+      hallOfFame: state.hallOfFame,
+      musicOn: state.musicOn,
+      musicVolume: state.musicVolume,
+      curWorld: state.curWorld,
+      curLevel: state.curLevel,
+      seenWelcome: state.seenWelcome,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  }catch(e){ /* storage unavailable (private browsing, etc.) — fail silently */ }
+}
+function loadState(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.completed) && data.completed.length===100) state.completed = data.completed;
+    if (Array.isArray(data.stars) && data.stars.length===100) state.stars = data.stars;
+    if (Array.isArray(data.hallOfFame)) state.hallOfFame = data.hallOfFame;
+    if (typeof data.musicOn === "boolean") state.musicOn = data.musicOn;
+    if (typeof data.musicVolume === "number") state.musicVolume = data.musicVolume;
+    if (typeof data.curWorld === "number") state.curWorld = data.curWorld;
+    if (typeof data.curLevel === "number") state.curLevel = data.curLevel;
+    if (typeof data.seenWelcome === "boolean") state.seenWelcome = data.seenWelcome;
+  }catch(e){ /* corrupted save — ignore and start fresh */ }
+}
+
+/* In-progress level: the actual board, score and moves for the level the
+   player is mid-way through, so reloading drops them back in exactly
+   where they left off instead of restarting the level. */
+const INPROGRESS_KEY = "davesMadnessInProgress_v1";
+function saveInProgressLevel(){
+  if (!G) return;
+  try{
+    const data = {
+      w:G.w, l:G.l, grid:G.grid, size:G.size, colors:G.colors, shapes:G.shapes,
+      score:G.score, moves:G.moves, target:G.target, warnedLastMove:G.warnedLastMove,
+    };
+    localStorage.setItem(INPROGRESS_KEY, JSON.stringify(data));
+  }catch(e){ /* storage unavailable — fail silently */ }
+}
+function loadInProgressLevel(){
+  try{
+    const raw = localStorage.getItem(INPROGRESS_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (typeof data.w!=="number" || typeof data.l!=="number" || !Array.isArray(data.grid)) return null;
+    return data;
+  }catch(e){ return null; }
+}
+function clearInProgressLevel(){
+  try{ localStorage.removeItem(INPROGRESS_KEY); }catch(e){ /* ignore */ }
+}
+
+/* =========================================================
    AUDIO ENGINE (procedural, no external files)
    ========================================================= */
 let actx = null;
 let musicGain = null;
+let sfxGain = null;
 let musicTimer = null;
 const SCALE = [392.00,440.00,523.25,587.33,659.25,783.99,880.00]; // light pentatonic-ish, G major flavor
 
@@ -567,11 +724,14 @@ function ensureAudio(){
     musicGain = actx.createGain();
     musicGain.gain.value = state.musicOn ? state.musicVolume*0.18 : 0;
     musicGain.connect(actx.destination);
+    sfxGain = actx.createGain();
+    sfxGain.gain.value = state.musicOn ? 0.9 : 0;
+    sfxGain.connect(actx.destination);
   }
   if (actx.state === "suspended") actx.resume();
 }
 
-function playTone(freq, time, dur, gainVal, type){
+function playTone(freq, time, dur, gainVal, type, destNode){
   const osc = actx.createOscillator();
   const g = actx.createGain();
   osc.type = type || "sine";
@@ -579,7 +739,7 @@ function playTone(freq, time, dur, gainVal, type){
   g.gain.setValueAtTime(0, time);
   g.gain.linearRampToValueAtTime(gainVal, time+0.015);
   g.gain.exponentialRampToValueAtTime(0.001, time+dur);
-  osc.connect(g); g.connect(musicGain);
+  osc.connect(g); g.connect(destNode || musicGain);
   osc.start(time); osc.stop(time+dur+0.02);
 }
 
@@ -622,14 +782,288 @@ function playMatchChime(comboIdx){
   playTone(f*1.5, now+0.03, 0.2, 0.05, "sine");
 }
 
+/* Cheerful little ascending arpeggio for an ordinary 3-match */
+function playJingle(){
+  ensureAudio();
+  const now = actx.currentTime;
+  const notes = [659.25, 830.61, 987.77];
+  notes.forEach((f,i)=> playTone(f, now+i*0.07, 0.2, 0.22, "triangle", sfxGain));
+}
+
+/* Quick pitch-rising "zip" for a 4 or 5 match */
+function playZip(){
+  ensureAudio();
+  const now = actx.currentTime;
+  const osc = actx.createOscillator();
+  const g = actx.createGain();
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(300, now);
+  osc.frequency.exponentialRampToValueAtTime(1600, now+0.16);
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.linearRampToValueAtTime(0.28, now+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+0.2);
+  osc.connect(g); g.connect(sfxGain);
+  osc.start(now); osc.stop(now+0.22);
+}
+
+/* Triumphant "Ta-Da" for an L/T-shaped combo match */
+function playTadaSound(){
+  ensureAudio();
+  const now = actx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.50];
+  notes.forEach((f,i)=> playTone(f, now+i*0.1, 0.36, 0.26, "triangle", sfxGain));
+  playTone(1568.0, now+0.4, 0.32, 0.18, "sine", sfxGain);
+}
+
+/* Classifies a resolved match set so the right sound/popup plays:
+   - "combo": any cell belongs to both a row run and a column run (L/T shape)
+   - "five"/"four": the longest single run in the match
+   - "three": a plain 3-in-a-row/column */
+function classifyMatchEvent(rowRuns, colRuns, tierMap){
+  const hasCombo = Array.from(tierMap.values()).some(t=>t===4);
+  if (hasCombo) return "combo";
+  let maxLen = 0;
+  rowRuns.forEach(r=>{ if (r.length>maxLen) maxLen = r.length; });
+  colRuns.forEach(r=>{ if (r.length>maxLen) maxLen = r.length; });
+  if (maxLen>=5) return "five";
+  if (maxLen===4) return "four";
+  return "three";
+}
+
+/* One brass-style note: two slightly detuned saw waves through a low-pass
+   filter that opens up on the attack, so it sounds like a horn rather than a beep. */
+function brassNote(freq, t, dur, vol){
+  [-5,5].forEach(det=>{
+    const osc = actx.createOscillator();
+    const filt = actx.createBiquadFilter();
+    const g = actx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.value = freq;
+    osc.detune.value = det;
+    filt.type = "lowpass";
+    filt.frequency.setValueAtTime(700, t);
+    filt.frequency.linearRampToValueAtTime(3200, t+0.06);
+    filt.frequency.linearRampToValueAtTime(1800, t+dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t+0.03);
+    g.gain.setValueAtTime(vol, t+Math.max(0.04, dur-0.1));
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    osc.connect(filt); filt.connect(g); g.connect(sfxGain);
+    osc.start(t); osc.stop(t+dur+0.03);
+  });
+}
+
+/* Big celebration for a 5-match: rising horn call, a held major chord with
+   a drum boom and cymbal crash, then a sparkle run. About 1.6 seconds. */
+function playFanfare(){
+  ensureAudio();
+  const t0 = actx.currentTime + 0.02;
+  // rising call: G  C  E  G
+  [[392.00,0.00,0.12],[523.25,0.11,0.12],[659.25,0.22,0.12],[783.99,0.33,0.16]]
+    .forEach(([f,dt,d])=> brassNote(f, t0+dt, d, 0.11));
+  // held C major chord
+  const tc = t0 + 0.52;
+  [523.25,659.25,783.99,1046.50].forEach(f=> brassNote(f, tc, 0.95, 0.09));
+  brassNote(130.81, tc, 0.95, 0.12);
+  // drum boom
+  const boom = actx.createOscillator(), bg = actx.createGain();
+  boom.type = "sine";
+  boom.frequency.setValueAtTime(170, tc);
+  boom.frequency.exponentialRampToValueAtTime(42, tc+0.45);
+  bg.gain.setValueAtTime(0.45, tc);
+  bg.gain.exponentialRampToValueAtTime(0.0001, tc+0.55);
+  boom.connect(bg); bg.connect(sfxGain);
+  boom.start(tc); boom.stop(tc+0.6);
+  // cymbal crash (filtered noise)
+  const len = Math.floor(actx.sampleRate*1.3);
+  const buf = actx.createBuffer(1, len, actx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i=0;i<len;i++) data[i] = Math.random()*2-1;
+  const noise = actx.createBufferSource(); noise.buffer = buf;
+  const hp = actx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 6000;
+  const ng = actx.createGain();
+  ng.gain.setValueAtTime(0.0001, tc);
+  ng.gain.linearRampToValueAtTime(0.2, tc+0.01);
+  ng.gain.exponentialRampToValueAtTime(0.0001, tc+1.2);
+  noise.connect(hp); hp.connect(ng); ng.connect(sfxGain);
+  noise.start(tc); noise.stop(tc+1.3);
+  // sparkle run on top
+  [1568.0,2093.0,2637.0,3136.0,2637.0,3136.0,4186.0].forEach((f,i)=>
+    playTone(f, tc+0.18+i*0.075, 0.22, 0.07, "triangle", sfxGain));
+}
+
+/* Spoken "Nice combo!" — plays your own nicecombo.mp3 if you drop one next to
+   the game, otherwise uses the browser's built-in voice. Rate-limited so
+   cascading combos don't talk over themselves. */
+let lastNiceComboAt = 0;
+function sayNiceCombo(){
+  if (!state.musicOn) return;
+  const now = Date.now();
+  if (now - lastNiceComboAt < 2500) return;
+  lastNiceComboAt = now;
+  setTimeout(()=>{
+    let fellBack = false;
+    const fallback = ()=>{ if (fellBack) return; fellBack = true; speakNiceCombo(); };
+    try{
+      const clip = new Audio("nicecombo.mp3");
+      clip.volume = 1;
+      clip.addEventListener("error", fallback);
+      const p = clip.play();
+      if (p && p.catch) p.catch(fallback);
+    }catch(e){ fallback(); }
+  }, 450);
+}
+function speakNiceCombo(){
+  try{
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance("Nice combo!");
+    u.rate = 1.05; u.pitch = 1.1; u.volume = 1;
+    window.speechSynthesis.speak(u);
+  }catch(e){ /* speech unsupported — fail silently */ }
+}
+
+function playMatchEventSound(eventType){
+  if (eventType==="combo") playTadaSound();
+  else if (eventType==="five") playFanfare();
+  else if (eventType==="four") playZip();
+  else playJingle();
+}
+
+/* =========================================================
+   VOICE / STORY CLIPS (level-win voices, welcome clip, world
+   promotion clips). Files live alongside this HTML file.
+   Clips are preloaded once into a shared cache so playback on
+   click is instant and doesn't race the browser's file load.
+   ========================================================= */
+const VOICE_CLIPS = [
+  "wendi.mp3","mary.mp3","john.mp3","elsa.mp3","tonya.mp3",
+  "chuck.mp3","jessica.mp3","mike.mp3","chris.mp3","kody.mp3"
+];
+const WORLD_PROMO_CLIPS = ["2.mp3","3.mp3","4.mp3","5.mp3","6.mp3","7.mp3","8.mp3","9.mp3","10.mp3"];
+const WELCOME_CLIP = "welcome_to_daves.mp3";
+const HOF_CLIP = "thank you 2.mp3";
+const OUT_OF_MOVES_CLIPS = ["outofmoves1.mp3","outofmoves2.mp3","outofmoves3.mp3","outofmoves4.mp3","outofmoves5.mp3","outofmoves6.mp3"];
+
+const AUDIO_CLIP_CACHE = {};
+function getClip(file){
+  let clip = AUDIO_CLIP_CACHE[file];
+  if (!clip){
+    clip = new Audio(file);
+    clip.preload = "auto";
+    try{ clip.load(); }catch(e){ /* ignore */ }
+    AUDIO_CLIP_CACHE[file] = clip;
+  }
+  return clip;
+}
+function preloadAllClips(){
+  VOICE_CLIPS.concat(WORLD_PROMO_CLIPS, OUT_OF_MOVES_CLIPS, [WELCOME_CLIP, HOF_CLIP]).forEach(getClip);
+}
+function playClipFile(file){
+  try{
+    const clip = getClip(file);
+    clip.pause();
+    clip.currentTime = 0;
+    clip.volume = 1;
+    const p = clip.play();
+    if (p && p.catch) p.catch(()=>{
+      // First attempt can be rejected by autoplay policy on some browsers;
+      // retry once with a fresh element as a fallback.
+      try{
+        const retry = new Audio(file);
+        retry.volume = 1;
+        retry.play().catch(()=>{ /* still blocked/missing — fail silently */ });
+      }catch(e2){ /* ignore */ }
+    });
+  }catch(e){ /* audio unsupported — fail silently */ }
+}
+function playRandomVoiceClip(){
+  const file = VOICE_CLIPS[Math.floor(Math.random()*VOICE_CLIPS.length)];
+  playClipFile(file);
+}
+let lastOutOfMovesClip = null;
+function playRandomOutOfMovesClip(){
+  let file = OUT_OF_MOVES_CLIPS[Math.floor(Math.random()*OUT_OF_MOVES_CLIPS.length)];
+  while (OUT_OF_MOVES_CLIPS.length>1 && file===lastOutOfMovesClip){
+    file = OUT_OF_MOVES_CLIPS[Math.floor(Math.random()*OUT_OF_MOVES_CLIPS.length)];
+  }
+  lastOutOfMovesClip = file;
+  playClipFile(file);
+}
+function playWelcomeClip(){ playClipFile(WELCOME_CLIP); }
+// nextWorldIdx is 0-based (1 = World 2 ... 9 = World 10), matching files 2.mp3..10.mp3
+function playWorldPromotionClip(nextWorldIdx){
+  const worldNumber = nextWorldIdx + 1;
+  if (worldNumber>=2 && worldNumber<=10) playClipFile(worldNumber + ".mp3");
+}
+
+/* Spawns a small floating label over the matched cells. It pops in and
+   holds for a moment so the player can actually read it, then flies up
+   to the score HUD and fades out. */
+function spawnScorePopup(text, matchedKeys, isCombo, extraClass){
+  const hudEl = document.getElementById("hudScore");
+  if (!hudEl || !matchedKeys || matchedKeys.size===0) return;
+  let sumX=0, sumY=0, count=0;
+  matchedKeys.forEach(key=>{
+    const [r,c] = key.split(",").map(Number);
+    const el = cellEl(r,c);
+    if (el){
+      const rect = el.getBoundingClientRect();
+      sumX += rect.left + rect.width/2;
+      sumY += rect.top + rect.height/2;
+      count++;
+    }
+  });
+  if (count===0) return;
+  const startX = sumX/count, startY = sumY/count;
+  const hudRect = hudEl.getBoundingClientRect();
+  const endX = hudRect.left + hudRect.width/2;
+  const endY = hudRect.top + hudRect.height/2;
+
+  const pop = document.createElement("div");
+  pop.className = "score-popup" + (isCombo ? " combo" : "") + (extraClass ? " "+extraClass : "");
+  pop.textContent = text;
+  pop.style.left = startX + "px";
+  pop.style.top = startY + "px";
+  pop.style.opacity = "0";
+  pop.style.transform = "translate(-50%,-50%) scale(0.4)";
+  pop.style.transition = "transform .18s cubic-bezier(.34,1.56,.64,1), opacity .12s ease";
+  document.body.appendChild(pop);
+  pop.getBoundingClientRect(); // force layout before animating
+
+  const POP_IN_MS = 160;   // quick bounce-in
+  const HOLD_MS = 500;     // pause so it can actually be read
+  const FLY_MS = 480;      // flight up to the score
+
+  requestAnimationFrame(()=>{
+    pop.style.opacity = "1";
+    pop.style.transform = "translate(-50%,-50%) scale(1.12)";
+  });
+  setTimeout(()=>{
+    pop.style.transition = "transform .12s ease";
+    pop.style.transform = "translate(-50%,-50%) scale(1)";
+  }, POP_IN_MS);
+  setTimeout(()=>{
+    pop.style.transition = `transform ${FLY_MS}ms cubic-bezier(.3,.1,.2,1), opacity ${FLY_MS}ms ease ${Math.round(FLY_MS*0.55)}ms`;
+    pop.style.transform = `translate(-50%,-50%) translate(${endX-startX}px, ${endY-startY}px) scale(0.3)`;
+    pop.style.opacity = "0";
+  }, POP_IN_MS + HOLD_MS);
+  setTimeout(()=>{
+    if (pop.parentNode) pop.parentNode.removeChild(pop);
+  }, POP_IN_MS + HOLD_MS + FLY_MS + 60);
+}
+
 function setMusicEnabled(on){
   state.musicOn = on;
   if (musicGain) musicGain.gain.value = on ? state.musicVolume*0.18 : 0;
+  if (sfxGain) sfxGain.gain.value = on ? 0.9 : 0;
   document.getElementById("musicToggle").classList.toggle("off", !on);
+  saveState();
 }
 function setMusicVolume(v){
   state.musicVolume = v;
   if (musicGain && state.musicOn) musicGain.gain.value = v*0.18;
+  saveState();
 }
 
 /* =========================================================
@@ -777,6 +1211,10 @@ function renderWorldGrid(){
     card.disabled = !unlocked;
     card.addEventListener("click", ()=>{
       ensureAudio(); playClick();
+      if (w===0 && !state.seenWelcome){
+        showOverlay("welcomeOverlay");
+        return;
+      }
       openWorldLevels(w);
     });
     grid.appendChild(card);
@@ -921,23 +1359,25 @@ function findMatchGroups(grid, size){
 }
 
 /* Tiered scoring:
-   - a plain 3-in-a-row/column = 1x
-   - a 4-in-a-row/column = 2x (double)
+   - a plain 3-in-a-row/column = 1x (same)
+   - a 4-in-a-row/column = 2x (double points)
+   - a 5-or-longer-in-a-row/column = 3x (triple points)
    - a cell that's part of both a row run AND a column run at once (an
-     L/T-shaped combo) = 3x (triple), overriding the length-based tier */
+     L/T-shaped combo) = 4x, overriding the length-based tier */
 function scoreMatchGroups(rowRuns, colRuns){
   const tierMap = new Map();
   const inRow = new Set(), inCol = new Set();
+  const tierForRun = len => len>=5 ? 3 : (len>=4 ? 2 : 1);
   rowRuns.forEach(run=>{
-    const tier = run.length>=4 ? 2 : 1;
+    const tier = tierForRun(run.length);
     run.forEach(k=>{ inRow.add(k); tierMap.set(k, Math.max(tierMap.get(k)||0, tier)); });
   });
   colRuns.forEach(run=>{
-    const tier = run.length>=4 ? 2 : 1;
+    const tier = tierForRun(run.length);
     run.forEach(k=>{ inCol.add(k); tierMap.set(k, Math.max(tierMap.get(k)||0, tier)); });
   });
   tierMap.forEach((tier,key)=>{
-    if (inRow.has(key) && inCol.has(key)) tierMap.set(key, 3);
+    if (inRow.has(key) && inCol.has(key)) tierMap.set(key, 4);
   });
   const matchedSet = new Set(tierMap.keys());
   let baseScore = 0;
@@ -1054,17 +1494,28 @@ function buildBoardForLevel(w,l){
   return {grid, size, colors, shapes};
 }
 
-function startLevel(w,l){
+function startLevel(w,l,resumeData){
   state.curWorld = w; state.curLevel = l;
-  const {grid,size,colors,shapes} = buildBoardForLevel(w,l);
+  saveState();
+  let grid,size,colors,shapes,score,moves,target,warnedLastMove;
+  if (resumeData){
+    grid = resumeData.grid; size = resumeData.size;
+    colors = resumeData.colors; shapes = resumeData.shapes;
+    score = resumeData.score; moves = resumeData.moves;
+    target = resumeData.target; warnedLastMove = !!resumeData.warnedLastMove;
+  } else {
+    ({grid,size,colors,shapes} = buildBoardForLevel(w,l));
+    score = 0; moves = movesFor(w,l); target = targetFor(w,l); warnedLastMove = false;
+  }
   G = {
     w,l,grid,size,colors,shapes,
-    score:0,
-    moves: movesFor(w,l),
-    target: targetFor(w,l),
+    pieces: piecesForWorld(w, colors.length),
+    score,
+    moves,
+    target,
     selected: null,
     busy:false,
-    warnedLastMove:false,
+    warnedLastMove,
   };
   document.getElementById("gWorldName").textContent = "WORLD " + (w+1) + " \u2014 " + WORLDS[w].name;
   document.getElementById("gLevelName").textContent = "LEVEL " + (l+1);
@@ -1073,7 +1524,8 @@ function startLevel(w,l){
   showScreen("screen-game");
   ensureAudio();
   scheduleMusicLoop();
-  showBanner("Welcome to Dave's Madness!", false);
+  showBanner(resumeData ? "Welcome back! Right where you left off." : "Welcome to Dave's Madness!", false);
+  saveInProgressLevel();
 }
 
 function updateHud(){
@@ -1101,8 +1553,14 @@ function renderBoardEl(newCells){
         const gem = document.createElement("div");
         const shapeIdx = G.colors.indexOf(data.color);
         const shapeName = (G.shapes && G.shapes[shapeIdx]) || "circle";
-        gem.className = "gem shape-" + shapeName;
-        gem.style.background = `radial-gradient(circle at 35% 30%, ${lighten(data.color)}, ${data.color})`;
+        const pieceImg = G.pieces && G.pieces[shapeIdx];
+        if (pieceImg){
+          gem.className = "gem img-piece";
+          gem.style.backgroundImage = `url("${pieceImg}")`;
+        } else {
+          gem.className = "gem shape-" + shapeName;
+          gem.style.background = `radial-gradient(circle at 35% 30%, ${lighten(data.color)}, ${data.color})`;
+        }
         cell.appendChild(gem);
       }
       cell.addEventListener("click", onCellClick);
@@ -1208,7 +1666,7 @@ function attemptSwap(r1,c1,r2,c2){
 
 function resolveMatches(comboIdx){
   const {rowRuns, colRuns} = findMatchGroups(G.grid, G.size);
-  const {matchedSet: matches, baseScore} = scoreMatchGroups(rowRuns, colRuns);
+  const {matchedSet: matches, baseScore, tierMap} = scoreMatchGroups(rowRuns, colRuns);
   if (matches.size===0){
     if (!hasValidMove() && G.moves>0){
       showBanner("No matches left on the board — Dave's shuffling it!", false);
@@ -1226,7 +1684,11 @@ function resolveMatches(comboIdx){
     postMoveCheck();
     return;
   }
-  playMatchChime(comboIdx);
+  const matchEvent = classifyMatchEvent(rowRuns, colRuns, tierMap);
+  playMatchEventSound(matchEvent);
+  if (matchEvent==="four") spawnScorePopup("4", matches, false);
+  else if (matchEvent==="five") spawnScorePopup("5", matches, false, "five");
+  else if (matchEvent==="combo"){ spawnScorePopup("Combo", matches, true); sayNiceCombo(); }
   // unlock neighbors of matched cells
   matches.forEach(key=>{
     const [r,c] = key.split(",").map(Number);
@@ -1236,8 +1698,8 @@ function resolveMatches(comboIdx){
       }
     });
   });
-  // score: baseScore already includes the 4-in-a-row (2x) / combo (3x) tiers,
-  // then the usual cascade multiplier stacks on top for chained matches
+  // score: baseScore already includes the 4-in-a-row (2x) / 5-in-a-row (3x) /
+  // combo (4x) tiers, then the usual cascade multiplier stacks on top for chained matches
   const cascadeMultiplier = 1 + comboIdx*0.5;
   G.score += Math.round(baseScore * cascadeMultiplier);
   updateHud();
@@ -1278,10 +1740,12 @@ function resolveMatches(comboIdx){
 
 function postMoveCheck(){
   if (G.score >= G.target){
+    clearInProgressLevel();
     setTimeout(()=>onLevelWin(), 250);
     return;
   }
   if (G.moves <= 0){
+    clearInProgressLevel();
     setTimeout(()=>onLevelLose(), 250);
     return;
   }
@@ -1289,6 +1753,7 @@ function postMoveCheck(){
     G.warnedLastMove = true;
     showBanner("You only have one try left! Dave's going to win!", true);
   }
+  saveInProgressLevel();
 }
 
 /* =========================================================
@@ -1309,31 +1774,26 @@ function onLevelWin(){
   const isLastLevel = (G.w===9 && G.l===9);
   const completedWorld = (G.l===9);
   state.pendingPromotionWorld = (completedWorld && !isLastLevel) ? (G.w+1) : null;
+  saveState();
 
   document.getElementById("winStars").textContent = "\u2605".repeat(st) + "\u2606".repeat(3-st);
+  document.getElementById("winWorldLevel").textContent = worldLevelLabel(G.w, G.l);
   document.getElementById("winScore").textContent = G.score;
   document.getElementById("winTarget").textContent = G.target;
   document.getElementById("nextLevelBtn").style.display = isLastLevel ? "none" : "block";
 
   showOverlay("winOverlay");
   burstConfetti();
+  playRandomVoiceClip();
 
   if (isLastLevel){
     setTimeout(()=>{
       hideOverlay("winOverlay");
+      document.getElementById("hofWorldLevel").textContent = worldLevelLabel(G.w, G.l);
       showOverlay("hofOverlay");
+      playClipFile(HOF_CLIP);
     }, 1400);
   }
-}
-
-function speakText(text){
-  try{
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.95; u.pitch = 1.0; u.volume = 1;
-    window.speechSynthesis.speak(u);
-  }catch(e){ /* speech synthesis unsupported — fail silently */ }
 }
 
 let pendingContinueAction = null;
@@ -1354,10 +1814,11 @@ function articleFor(title){
 function showPromotion(nextWorldIdx, continueFn){
   const title = promoTitleFor(nextWorldIdx);
   const article = articleFor(title);
+  document.getElementById("promoWorldLevel").textContent = worldLevelLabel(G.w, G.l);
   document.getElementById("promoLeadText").textContent = article ? `You are ${article}` : "You are";
   document.getElementById("promoWorldName").textContent = title;
   showOverlay("promotionOverlay");
-  speakText(`Congratulations, you are ${article ? article+" " : ""}${title}!`);
+  playWorldPromotionClip(nextWorldIdx);
   pendingContinueAction = continueFn;
 }
 document.getElementById("promoContinueBtn").addEventListener("click", ()=>{
@@ -1365,10 +1826,20 @@ document.getElementById("promoContinueBtn").addEventListener("click", ()=>{
   if (pendingContinueAction){ const fn = pendingContinueAction; pendingContinueAction = null; fn(); }
 });
 
+document.getElementById("welcomeStartBtn").addEventListener("click", ()=>{
+  ensureAudio();
+  hideOverlay("welcomeOverlay");
+  state.seenWelcome = true;
+  saveState();
+  playWelcomeClip();
+  startLevel(0,0);
+});
+
 function onLevelLose(){
   document.getElementById("loseScore").textContent = G.score;
   document.getElementById("loseTarget").textContent = G.target;
   showOverlay("loseOverlay");
+  playRandomOutOfMovesClip();
 }
 
 function showOverlay(id){ document.getElementById(id).classList.add("show"); }
@@ -1378,7 +1849,7 @@ document.getElementById("nextLevelBtn").addEventListener("click", ()=>{
   hideOverlay("winOverlay");
   let w = G.w, l = G.l+1;
   if (l>9){ w++; l=0; }
-  const doNav = ()=>{ goHomeWithConfettiContext(); openWorldLevels(w); };
+  const doNav = ()=>{ startLevel(w,l); };
   if (state.pendingPromotionWorld!=null){
     const nw = state.pendingPromotionWorld; state.pendingPromotionWorld = null;
     showPromotion(nw, doNav);
@@ -1410,6 +1881,12 @@ document.getElementById("quitBtn").addEventListener("click", ()=>{
 document.getElementById("restartBtn").addEventListener("click", ()=>{
   if (G) startLevel(G.w, G.l);
 });
+document.getElementById("forceWinBtn").addEventListener("click", ()=>{
+  if (!G || !state.testMode) return;
+  G.score = G.target;
+  updateHud();
+  postMoveCheck();
+});
 
 function goHome(){
   if (musicTimer) clearInterval(musicTimer);
@@ -1430,6 +1907,7 @@ document.getElementById("hofSubmitBtn").addEventListener("click", ()=>{
   const name = (input.value || "Anonymous Foreman").trim().slice(0,18);
   state.hallOfFame.push(name || "Anonymous Foreman");
   input.value = "";
+  saveState();
   hideOverlay("hofOverlay");
   goHome();
 });
@@ -1451,6 +1929,12 @@ document.getElementById("musicVolume").addEventListener("input", function(e){
 });
 document.getElementById("testModeToggle").addEventListener("click", function(){
   state.testMode = !state.testMode;
+  document.getElementById("forceWinBtn").style.display = state.testMode ? "inline-flex" : "none";
+  if (state.testMode){
+    // let testers re-trigger the World 1 welcome popup on demand
+    state.seenWelcome = false;
+    saveState();
+  }
   // refresh whichever view is currently showing
   if (document.getElementById("levelView").style.display !== "none" && state.selectedWorldForMap!=null){
     openWorldLevels(state.selectedWorldForMap);
@@ -1492,8 +1976,18 @@ document.getElementById("pinCancelBtn").addEventListener("click", ()=>{
 /* =========================================================
    INIT
    ========================================================= */
+loadState();
+preloadAllClips();
+document.getElementById("musicVolume").value = Math.round(state.musicVolume*100);
+document.getElementById("musicToggle").classList.toggle("off", !state.musicOn);
+preloadPieceImages();
 renderWorldGrid();
 renderHallOfFame();
+
+const savedInProgress = loadInProgressLevel();
+if (savedInProgress){
+  startLevel(savedInProgress.w, savedInProgress.l, savedInProgress);
+}
 
 })();
 </script>
